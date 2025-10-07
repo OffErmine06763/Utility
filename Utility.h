@@ -17,9 +17,14 @@
 #endif
 #if CPP_VERSION >= 201402L
     #define HAS_CPP14
+#else
+    #error "Bro update your computer"
 #endif
-#if CPP_VERSION >= 201103L
-    #define HAS_CPP11
+
+#ifdef HAS_CPP20
+	#define _requires(...) requires __VA_ARGS__
+#else
+	#define _requires(...)
 #endif
 
 #include <inttypes.h>
@@ -80,15 +85,19 @@ using i32 =  int32_t;
 using i64 =  int64_t;
 using f32 =  float  ;
 using f64 =  double ;
-
-template <typename K, typename V>
-using hmap = std::unordered_map<K, V>;
-template <typename V>
-using hset = std::unordered_set<V>;
 	
-namespace std { namespace chrono {
-	using clock = high_resolution_clock;
-}}
+namespace std
+{
+	template <typename K, typename V>
+	using hmap = std::unordered_map<K, V>;
+	template <typename V>
+	using hset = std::unordered_set<V>;
+
+	namespace chrono
+	{
+		using clock = high_resolution_clock;
+	}
+}
 
 template <typename T>
 using uptr = std::unique_ptr<T>;
@@ -103,25 +112,61 @@ using provider = std::function<T(void)>;
 // ################################################################## ALIASES ##################################################################
 
 
-// PAIR
+// ################################################################## COORD ##################################################################
+template <typename T, size_t D, bool = std::is_trivially_destructible<T>::value>
+struct coord;
+
 template <typename T>
-using coord = std::pair<T, T>;
+struct coord<T, 2, true>
+{
+	union { T x, col; };
+	union { T y, row; };
+};
 template <typename T>
-std::ostream& operator<<(std::ostream& out, const coord<T>& c) {
-#ifdef HAS_CPP20
-	return out << std::format("[{}:{}]", c.first, c.second);
-#else
-	return out << '[' << c.first << ':' << c.second << ']';
-#endif
+struct coord<T, 2, false>
+{
+	T x, y;
+};
+template <typename T>
+struct coord<T, 3, true>
+{
+	union { T x, r; };
+	union { T y, g; };
+	union { T z, b; };
+};
+template <typename T>
+struct coord<T, 3, false>
+{
+	T x, y, z;
+};
+template <typename T>
+struct coord<T, 4, true>
+{
+	union { T x, r; };
+	union { T y, g; };
+	union { T z, b; };
+	union { T w, a; };
+};
+template <typename T>
+struct coord<T, 4, false>
+{
+	T x, y, z, w;
+};
+
+
+template <typename T>
+coord<T, 2> operator+(const coord<T, 2>& a, const coord<T, 2>& b) {
+	return { a.x + b.x, a.y + b.y };
 }
 template <typename T>
-coord<T> operator+(const coord<T> a, const coord<T>& b) {
-	return { a.first + b.first, a.second + b.second };
+coord<T, 3> operator+(const coord<T, 3>& a, const coord<T, 3>& b) {
+	return { a.x + b.x, a.y + b.y, a.z + b.z };
 }
 template <typename T>
-std::string operator+(const std::string& left, const coord<T>& right) {
-	return left + std::to_string(right.first) + ':' + std::to_string(right.second);
+coord<T, 4> operator+(const coord<T, 4>& a, const coord<T, 4>& b) {
+	return { a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w };
 }
+// ################################################################## COORD ##################################################################
 
 
 
@@ -161,10 +206,7 @@ constexpr bool v_is_one_of = ((Value == Accepted) || ...);
 
 // BINDING
 #define BIND(fn) [this]() { this->fn(); }
-template <class C, typename R = void, typename I> 
-#ifdef HAS_CPP20
-	requires not_void<I>
-#endif
+template <class C, typename R = void, typename I> _requires(not_void<I>)
 constexpr std::function<R(I)> bind(C* _this, R(C::* fn)(I)) {
 	return [_this, fn](I data) -> R { return (_this->*fn)(data); };
 }
@@ -185,10 +227,7 @@ struct visitor : Ts... { using Ts::operator()...; };
 #ifdef HAS_CPP17
 template <typename V, typename... T>
 bool inline constexpr holds(const std::variant<T...>& var) { return std::holds_alternative<V>(var); }
-template <typename V, typename... T>
-#ifdef HAS_CPP20
-	requires in_variants<V, T...>
-#endif
+template <typename V, typename... T> _requires(in_variants<V, T...>)
 bool inline constexpr holds(const T&... vars) { return (... && std::holds_alternative<V>(vars)); }
 #endif
 
@@ -227,10 +266,7 @@ struct expected
 	U& _getU() { return std::get<U>(content); }
 	E&& _consumeE() { return std::move(std::get<E>(content)); }
 	U&& _consumeU() { return std::move(std::get<U>(content)); }
-	template <typename T>
-#ifdef HAS_CPP20
-		requires in_variant<T, std::variant<E, U>>
-#endif
+	template <typename T> _requires(in_variant<T, std::variant<E, U>>)
 	std::optional<T> get() {
 		return std::holds_alternative<T>(content) ? std::get<T>(content) : std::nullopt;
 	}
@@ -242,52 +278,54 @@ struct expected
 // ################################################################## EXPECTED ##################################################################
 
 
+// ################################################################## TREE ##################################################################
+
+// ################################################################## TREE ##################################################################
+
+
 // ################################################################## LOGGING ##################################################################
 #ifdef _DEBUG
-#define LOG(x) dbg << x
-
-struct Dbg { };
-#ifdef HAS_CPP17
-inline static constexpr Dbg dbg;
-#else
-static constexpr Dbg dbg;
-#endif
-template <typename T>
-inline const Dbg& operator<<(const Dbg& dbg, const T& data)
-{
-	std::cout << data;
-	return dbg;
-}
-template <typename T> /*requires std::is_arithmetic_v<T>*/
-inline const Dbg& operator<<(const Dbg& dbg, const std::vector<T>& data)
-{
-	for (const auto& i : data)
-		std::cout << i << ' ';
-	return dbg;
-}
-inline const Dbg& operator<<(const Dbg& dbg, std::ostream& (*manip)(std::ostream&))
-{
-	std::cout << manip;
-	return dbg;
-}
-
+#define LOG(x) std::cout << x
+#define LOGE(x) std::cerr << x
 #else
 #define LOG(x)
+#define LOGE(x)
+#endif
 
-struct Dbg { };
-#ifdef HAS_CPP17
-inline static constexpr Dbg dbg;
-#else
-static constexpr Dbg dbg;
-#endif
+template <typename T> /*requires std::is_arithmetic_v<T>*/
+std::ostream& operator<<(std::ostream& out, const std::vector<T>& data)
+{
+	out << '[';
+	for (size_t i = 0; i + 1 < data.size(); i++)
+		out << data[i] << ", ";
+	if (!data.empty())
+		out << data.back();
+	out << ']';
+	return out;
+}
+
 template <typename T>
-inline const Dbg& operator<<(const Dbg& dbg, const T& data)
-{
-	return dbg;
-}
-inline const Dbg& operator<<(const Dbg& dbg, std::ostream& (*manip)(std::ostream&))
-{
-	return dbg;
-}
+std::ostream& operator<<(std::ostream& out, const coord<T, 2>& c) {
+#ifdef HAS_CPP20
+	return out << std::format("[{}:{}]", c.x, c.y);
+#else
+	return out << '[' << c.x << ':' << c.y << ']';
 #endif
+}
+template <typename T>
+std::ostream& operator<<(std::ostream& out, const coord<T, 3>& c) {
+#ifdef HAS_CPP20
+	return out << std::format("[{}:{}:{}]", c.x, c.y, c.z);
+#else
+	return out << '[' << c.x << ':' << c.y << ':' << c.z << ']';
+#endif
+}
+template <typename T>
+std::ostream& operator<<(std::ostream& out, const coord<T, 4>& c) {
+#ifdef HAS_CPP20
+	return out << std::format("[{}:{}:{}:{}]", c.x, c.y, c.z, c.w);
+#else
+	return out << '[' << c.x << ':' << c.y << ':' << c.z << ':' << c.w << ']';
+#endif
+}
 // ################################################################## LOGGING ##################################################################
