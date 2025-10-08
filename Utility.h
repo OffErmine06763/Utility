@@ -7,18 +7,18 @@
 #endif
 
 #if CPP_VERSION >= 202302L
-    #define HAS_CPP23
+	#define HAS_CPP23
 #endif
 #if CPP_VERSION >= 202002L
-    #define HAS_CPP20
+	#define HAS_CPP20
 #endif
 #if CPP_VERSION >= 201703L
-    #define HAS_CPP17
+	#define HAS_CPP17
 #endif
 #if CPP_VERSION >= 201402L
-    #define HAS_CPP14
+	#define HAS_CPP14
 #else
-    #error "Bro update your computer"
+	#error "Bro update your computer"
 #endif
 
 #ifdef HAS_CPP20
@@ -26,6 +26,14 @@
 #else
 	#define _requires(...)
 #endif
+
+
+#ifdef LEAK_CHECK
+#define LEAK_STMT(x) x
+#else
+#define LEAK_STMT(x)
+#endif
+
 
 #include <inttypes.h>
 #include <numbers>
@@ -86,15 +94,13 @@ using i64 =  int64_t;
 using f32 =  float  ;
 using f64 =  double ;
 	
-namespace std
-{
+namespace std {
 	template <typename K, typename V>
 	using hmap = std::unordered_map<K, V>;
 	template <typename V>
 	using hset = std::unordered_set<V>;
 
-	namespace chrono
-	{
+	namespace chrono {
 		using clock = high_resolution_clock;
 	}
 }
@@ -179,7 +185,7 @@ inline constexpr T to(const stdc::duration<_X, X>& x) { return stdc::duration_ca
 
 // CONCEPTS
 #ifdef HAS_CPP17
-template <typename T, typename Variant>
+template <typename T, typename NonVariant>
 struct variant_contains : std::false_type {};
 template <typename T, typename... Types>
 struct variant_contains<T, std::variant<Types...>> : std::disjunction<std::is_same<T, Types>...> {};
@@ -187,26 +193,19 @@ struct variant_contains<T, std::variant<Types...>> : std::disjunction<std::is_sa
 #ifdef HAS_CPP20
 template <typename T, typename Variant>
 concept in_variant = variant_contains<T, Variant>::value;
-template <typename T, typename... Variant>
-concept in_variants = (variant_contains<T, Variant>::value && ...);
-
-template <typename T, typename U>
-concept not_same_as = !std::same_as<T, U>;
-template <typename T>
-concept not_void = !std::is_void_v<T>;
 #endif
 
 #ifdef HAS_CPP17
 template <typename T, typename... Args>
 constexpr bool is_one_of = (std::is_same_v<T, Args> || ...);
 template <auto Value, auto... Accepted>
-constexpr bool v_is_one_of = ((Value == Accepted) || ...);
+constexpr bool val_is_one_of = ((Value == Accepted) || ...);
 #endif
 
 
 // BINDING
 #define BIND(fn) [this]() { this->fn(); }
-template <class C, typename R = void, typename I> _requires(not_void<I>)
+template <class C, typename R = void, typename I> _requires((!std::is_void_v<I>))
 constexpr std::function<R(I)> bind(C* _this, R(C::* fn)(I)) {
 	return [_this, fn](I data) -> R { return (_this->*fn)(data); };
 }
@@ -225,10 +224,11 @@ struct visitor : Ts... { using Ts::operator()...; };
 
 // VARIANT
 #ifdef HAS_CPP17
-template <typename V, typename... T>
-bool inline constexpr holds(const std::variant<T...>& var) { return std::holds_alternative<V>(var); }
-template <typename V, typename... T> _requires(in_variants<V, T...>)
-bool inline constexpr holds(const T&... vars) { return (... && std::holds_alternative<V>(vars)); }
+// The requires are not necessary, but help with error messages, pointing directly to the function call, rather then in here
+template <typename T, typename... VTs> _requires(is_one_of<T, VTs...>)
+bool inline constexpr holds(const std::variant<VTs...>& var) { return std::holds_alternative<T>(var); }
+template <typename T, typename... Vs> _requires((variant_contains<T, Vs>::value && ...))
+bool inline constexpr holds(const Vs&... vars) { return (... && std::holds_alternative<T>(vars)); }
 #endif
 
 
@@ -279,7 +279,184 @@ struct expected
 
 
 // ################################################################## TREE ##################################################################
+template <typename T>
+class BST
+{
+public:
+	struct Node {
+		T val;
+		Node* left = nullptr, *right = nullptr;
+		Node(const T& x) : val(x) { LEAK_STMT(counter++); }
+		Node(T&& x) : val(std::move(x)) { LEAK_STMT(counter++); }
+		~Node() { LEAK_STMT(counter--); }
 
+		LEAK_STMT(static int counter);
+	};
+
+public:
+	BST() = default;
+	BST(const BST<T>& other) {
+		other.PreOrder([this](const Node* node) -> bool { Insert(node->val); return false; });
+	}
+	BST(BST<T>&& other) { m_Root = other.m_Root; other.m_Root = nullptr; }
+	~BST() { Destroy(); }
+
+	void Insert(const T&  el) { Insert(new Node(el)); }
+	void Insert(      T&& el) { Insert(new Node(std::move(el))); }
+	void Insert(Node* node)   { m_Root = Insert(m_Root, node); }
+
+	bool PreOrder(const std::function<bool(Node*)>& cb) { return PreOrder(m_Root, cb); }
+	bool PreOrder(const std::function<bool(const Node*)>& cb) const { return PreOrder(m_Root, cb); }
+	bool PostOrder(const std::function<bool(Node*)>& cb) { return PostOrder(m_Root, cb); }
+	bool PostOrder(const std::function<bool(const Node*)>& cb) const { return PostOrder(m_Root, cb); }
+	bool InOrder(const std::function<bool(Node*)>& cb) { return InOrder(m_Root, cb); }
+	bool InOrder(const std::function<bool(const Node*)>& cb) const { return InOrder(m_Root, cb); }
+	
+	bool Search(const T& key) { return Search(m_Root, key) != nullptr; }
+
+	void Delete(const T& key) { m_Root = Delete(m_Root, key); }
+
+	void Destroy() { Destroy(m_Root); m_Root = nullptr; }
+
+	constexpr void swap(BST<T>& other) noexcept {
+		auto tmp = other.m_Root;
+		other.m_Root = m_Root;
+		m_Root = tmp;
+	}
+
+	Node* GetRoot() const { return m_Root; }
+
+private:
+	Node* Insert(Node* root, Node* node) {
+		if (root == nullptr) return node;
+
+		if (node->val > root->val)
+			root->right = Insert(root->right, node);
+		else
+			root->left = Insert(root->left, node);
+		size++;
+		return root;
+	}
+
+	
+	bool InOrder  (Node* root, const std::function<bool(Node*)>& cb) {
+		if (root == nullptr) return false;
+
+		if (InOrder(root->left , cb)) return true;
+		if (cb(root)) return true;
+		if (InOrder(root->right, cb)) return true;
+		return false;
+	}
+	bool InOrder  (Node* root, const std::function<bool(const Node*)>& cb) const {
+		if (root == nullptr) return false;
+
+		if (InOrder(root->left , cb)) return true;
+		if (cb(root)) return true;
+		if (InOrder(root->right, cb)) return true;
+		return false;
+	}
+	bool PreOrder (Node* root, const std::function<bool(Node*)>& cb) {
+		if (root == nullptr) return false;
+
+		if (cb(root)) return true;
+		if (PreOrder(root->left , cb)) return true;
+		if (PreOrder(root->right, cb)) return true;
+		return false;
+	}
+	bool PreOrder (Node* root, const std::function<bool(const Node*)>& cb) const {
+		if (root == nullptr) return false;
+
+		if (cb(root)) return true;
+		if (PreOrder(root->left , cb)) return true;
+		if (PreOrder(root->right, cb)) return true;
+		return false;
+	}
+	bool PostOrder(Node* root, const std::function<bool(Node*)>& cb) {
+		if (root == nullptr) return false;
+
+		if (PostOrder(root->left , cb)) return true;
+		if (PostOrder(root->right, cb)) return true;
+		if (cb(root)) return true;
+		return false;
+	}
+	bool PostOrder(Node* root, const std::function<bool(const Node*)>& cb) const {
+		if (root == nullptr) return false;
+
+		if (PostOrder(root->left , cb)) return true;
+		if (PostOrder(root->right, cb)) return true;
+		if (cb(root)) return true;
+		return false;
+	}
+
+	Node* Search(Node* node, const T& key) {
+		if (node == nullptr)  return nullptr;
+		if (node->val == key) return node;
+		if (key < node->val)  return search(node->left, key);
+		else                  return search(node->right, key);
+	}
+
+	Node* Delete(Node* node, const T& key) {
+		if (node == nullptr) return nullptr;
+
+		if (key < node->val)
+			node->left = Delete(node->left, key);
+		else if (key > node->val)
+			node->right = Delete(node->right, key);
+		else {
+			// Node with one child or no child
+			if (node->left == nullptr) {
+				Node* temp = node->right;
+				delete node;
+				size--;
+				return temp;
+			} else if (node->right == nullptr) {
+				Node* temp = node->left;
+				delete node;
+				size--;
+				return temp;
+			}
+
+			// Node with two children: get the smallest of the values greater than the current node (min node in right subtree)
+			Node* temp = MinNode(node->right);
+			node->val = temp->val;
+			node->right = Delete(node->right, temp->val);
+		}
+		return node;
+	}
+
+	Node* MinNode(Node* node) {
+		if (node == nullptr) return nullptr;
+
+		Node* current = node;
+		while (current->left != nullptr)
+			current = current->left;
+		return current;
+	}
+
+	void Destroy(Node* root) {
+		if (root == nullptr) return;
+
+		Destroy(root->left);
+		Destroy(root->right);
+		delete root;
+	}
+
+private:
+	size_t size = 0;
+	Node* m_Root = nullptr;
+};
+
+namespace std {
+	template <typename T>
+	constexpr inline void swap(BST<T>& _Left, BST<T>& _Right) noexcept {
+		_Left.swap(_Right);
+	}
+}
+
+#ifdef LEAK_CHECK
+template <typename T>
+int BST<T>::Node::counter = 0;
+#endif
 // ################################################################## TREE ##################################################################
 
 
@@ -307,7 +484,8 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& data)
 template <typename T>
 std::ostream& operator<<(std::ostream& out, const coord<T, 2>& c) {
 #ifdef HAS_CPP20
-	return out << std::format("[{}:{}]", c.x, c.y);
+	std::format_to(std::ostream_iterator<char>(std::cout), "[{}:{}]", c.x, c.y);
+	return out;
 #else
 	return out << '[' << c.x << ':' << c.y << ']';
 #endif
@@ -315,7 +493,8 @@ std::ostream& operator<<(std::ostream& out, const coord<T, 2>& c) {
 template <typename T>
 std::ostream& operator<<(std::ostream& out, const coord<T, 3>& c) {
 #ifdef HAS_CPP20
-	return out << std::format("[{}:{}:{}]", c.x, c.y, c.z);
+	std::format_to(std::ostream_iterator<char>(std::cout), "[{}:{}:{}]", c.x, c.y, c.z);
+	return out;
 #else
 	return out << '[' << c.x << ':' << c.y << ':' << c.z << ']';
 #endif
@@ -323,9 +502,30 @@ std::ostream& operator<<(std::ostream& out, const coord<T, 3>& c) {
 template <typename T>
 std::ostream& operator<<(std::ostream& out, const coord<T, 4>& c) {
 #ifdef HAS_CPP20
-	return out << std::format("[{}:{}:{}:{}]", c.x, c.y, c.z, c.w);
+	std::format_to(std::ostream_iterator<char>(std::cout), "[{}:{}:{}:{}]", c.x, c.y, c.z, c.w);
+	return out;
 #else
 	return out << '[' << c.x << ':' << c.y << ':' << c.z << ':' << c.w << ']';
 #endif
+}
+
+enum class TreePrintMode { IN, PRE, POST };
+extern const i32 g_TreePrintModeIndex; // extern to be common across translation units
+
+std::ostream& TreeInOrder(std::ostream& out);
+std::ostream& TreePreOrder(std::ostream& out);
+std::ostream& TreePostOrder(std::ostream& out);
+
+template <typename T>
+std::ostream& operator<<(std::ostream& out, const BST<T>& tree) {
+	auto lambda = [&out](const typename BST<T>::Node* node) -> bool { out << node->val << ' '; return false; };
+	TreePrintMode mode = (TreePrintMode)out.iword(g_TreePrintModeIndex);
+	if (mode == TreePrintMode::IN)
+		tree.InOrder(lambda);
+	if (mode == TreePrintMode::PRE)
+		tree.PreOrder(lambda);
+	if (mode == TreePrintMode::POST)
+		tree.PostOrder(lambda);
+	return out;
 }
 // ################################################################## LOGGING ##################################################################
