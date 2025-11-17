@@ -30,8 +30,10 @@
 
 #ifdef LEAK_CHECK
 #define LEAK_STMT(x) x
+#define LEAK_DEFAULT(x) { x; }
 #else
 #define LEAK_STMT(x)
+#define LEAK_DEFAULT(x) = default
 #endif
 
 
@@ -71,6 +73,14 @@
 #include <variant>
 #endif
 
+#ifdef _DEBUG
+#define LOG(x) std::cout << x
+#define LOGE(x) std::cerr << x
+#else
+#define LOG(x)
+#define LOGE(x)
+#endif
+
 // ################################################################## ALIASES ##################################################################
 #ifdef HAS_CPP20
 namespace stdv = std::views;
@@ -103,6 +113,17 @@ namespace std {
 	namespace chrono {
 		using clock = high_resolution_clock;
 	}
+
+	#ifndef HAS_CPP20
+	struct identity {
+		using is_transparent = void;
+
+		template <class T>
+		constexpr T&& operator()(T&& t) const noexcept {
+			return std::forward<T>(t);
+		}
+	};
+	#endif
 }
 
 template <typename T>
@@ -202,6 +223,24 @@ template <auto Value, auto... Accepted>
 constexpr bool val_is_one_of = ((Value == Accepted) || ...);
 #endif
 
+template <typename>
+struct is_std_function : std::false_type {};
+template <typename R, typename... Args>
+struct is_std_function<std::function<R(Args...)>> : std::true_type {};
+#ifdef HAS_CPP20
+template <typename F>
+concept StdFunction = is_std_function<F>::value;
+#endif
+
+template <typename>
+struct c_function_pointer;
+template <typename R, typename... Args>
+struct c_function_pointer<std::function<R(Args...)>> {
+	using type = R(*)(Args...);
+};
+template <typename T>
+using c_function_pointer_t = typename c_function_pointer<T>::type;
+
 
 // BINDING
 #define BIND(fn) [this]() { this->fn(); }
@@ -278,6 +317,97 @@ struct expected
 // ################################################################## EXPECTED ##################################################################
 
 
+// ################################################################## DLL ##################################################################
+#ifdef HAS_CPP20
+#if defined(_WIN32)
+#define NOMINMAX
+#include <windows.h>
+#undef IN
+#define LOAD_LIB(path) LoadLibraryA(path)
+#define LOAD_SYM(lib, name) GetProcAddress((HMODULE)lib, name)
+#define CLOSE_LIB(lib) FreeLibrary((HMODULE)lib)
+#else
+#include <dlfcn.h>
+#define LOAD_LIB(path) dlopen(path, RTLD_NOW)
+#define LOAD_SYM(lib, name) dlsym(lib, name)
+#define CLOSE_LIB(lib) dlclose(lib)
+#endif
+
+class Loader
+{
+public:
+	using Storage = std::hmap<std::string, HMODULE>;
+
+public:
+	static void Init() { s_Instance = std::unique_ptr<Loader>(new Loader); }
+
+	static bool Load(const std::string& lib) { return s_Instance->_Load(lib); }
+	template <StdFunction F>
+	static std::optional<F> GetFunction(const std::string& lib, const std::string& name) {
+		return s_Instance->_GetFunction<F>(lib, name);
+	}
+	static void Unload(const std::string& lib) { s_Instance->_Unload(lib); }
+
+private:
+	Loader() {}
+	~Loader() {
+		while (!m_LoadedLibraries.empty())
+			_Unload(m_LoadedLibraries.begin());
+	}
+
+	bool _Load(const std::string& lib)
+	{
+		LOG("Loading " << lib << '\n');
+
+		HMODULE dll = LOAD_LIB(lib.c_str());
+		if (!dll) return false;
+		m_LoadedLibraries.insert({ lib, dll });
+		return true;
+	}
+	template <StdFunction F>
+	std::optional<F> _GetFunction(const std::string& lib, const std::string& name)
+	{
+		if (!m_LoadedLibraries.contains(lib))
+			if (!Load(lib))
+				return std::nullopt;
+
+		LOG("Loading function " << name << " from " << lib << '\n');
+
+		using FnT = c_function_pointer_t<F>;
+		FnT add = (FnT)LOAD_SYM(m_LoadedLibraries[lib], name.c_str());
+		if (!add) return std::nullopt;
+		return add;
+	}
+	void _Unload(const std::string& lib)
+	{
+		auto it = m_LoadedLibraries.find(lib);
+		if (it != m_LoadedLibraries.end())
+			_Unload(it);
+
+		// if (m_LoadedLibraries.contains(lib))
+		// {
+		// 	FreeLibrary(m_LoadedLibraries[lib]);
+		// 	m_LoadedLibraries.erase(lib);
+		// }
+	}
+	void _Unload(Storage::const_iterator it)
+	{
+		LOG("Unloading " << it->first << '\n');
+
+		CLOSE_LIB(it->second);
+		m_LoadedLibraries.erase(it);
+	}
+
+private:
+	static std::unique_ptr<Loader> s_Instance;
+	friend struct std::default_delete<Loader>;
+
+	Storage m_LoadedLibraries;
+};
+#endif
+// ################################################################## DLL ##################################################################
+
+
 // ################################################################## TREE ##################################################################
 template <typename T>
 class BST
@@ -288,7 +418,7 @@ public:
 		Node* left = nullptr, *right = nullptr;
 		Node(const T& x) : val(x) { LEAK_STMT(counter++); }
 		Node(T&& x) : val(std::move(x)) { LEAK_STMT(counter++); }
-		~Node() { LEAK_STMT(counter--); }
+		~Node() LEAK_DEFAULT(counter--;); 
 
 		LEAK_STMT(static int counter);
 	};
@@ -305,14 +435,15 @@ public:
 	void Insert(      T&& el) { Insert(new Node(std::move(el))); }
 	void Insert(Node* node)   { m_Root = Insert(m_Root, node); }
 
-	bool PreOrder(const std::function<bool(Node*)>& cb) { return PreOrder(m_Root, cb); }
-	bool PreOrder(const std::function<bool(const Node*)>& cb) const { return PreOrder(m_Root, cb); }
+	bool InOrder  (const std::function<bool(Node*)>& cb) { return InOrder(m_Root, cb); }
+	bool InOrder  (const std::function<bool(const Node*)>& cb) const { return InOrder(m_Root, cb); }
+	bool PreOrder (const std::function<bool(Node*)>& cb) { return PreOrder(m_Root, cb); }
+	bool PreOrder (const std::function<bool(const Node*)>& cb) const { return PreOrder(m_Root, cb); }
 	bool PostOrder(const std::function<bool(Node*)>& cb) { return PostOrder(m_Root, cb); }
 	bool PostOrder(const std::function<bool(const Node*)>& cb) const { return PostOrder(m_Root, cb); }
-	bool InOrder(const std::function<bool(Node*)>& cb) { return InOrder(m_Root, cb); }
-	bool InOrder(const std::function<bool(const Node*)>& cb) const { return InOrder(m_Root, cb); }
 	
-	bool Search(const T& key) { return Search(m_Root, key) != nullptr; }
+	template <typename U = T, typename Pj = std::identity>
+	bool Search(const U& key, Pj proj = {}) { return Search(m_Root, key, proj) != nullptr; }
 
 	void Delete(const T& key) { m_Root = Delete(m_Root, key); }
 
@@ -388,11 +519,13 @@ private:
 		return false;
 	}
 
-	Node* Search(Node* node, const T& key) {
+	template <typename U, typename Pj = std::identity>
+	Node* Search(Node* node, const U& key, Pj proj = {}) {
 		if (node == nullptr)  return nullptr;
-		if (node->val == key) return node;
-		if (key < node->val)  return search(node->left, key);
-		else                  return search(node->right, key);
+		U pv = std::invoke(proj, node->val);
+		if (pv == key) return node;
+		if (key < pv)  return Search(node->left, key, proj);
+		else           return Search(node->right, key, proj);
 	}
 
 	Node* Delete(Node* node, const T& key) {
@@ -461,14 +594,6 @@ int BST<T>::Node::counter = 0;
 
 
 // ################################################################## LOGGING ##################################################################
-#ifdef _DEBUG
-#define LOG(x) std::cout << x
-#define LOGE(x) std::cerr << x
-#else
-#define LOG(x)
-#define LOGE(x)
-#endif
-
 template <typename T> /*requires std::is_arithmetic_v<T>*/
 std::ostream& operator<<(std::ostream& out, const std::vector<T>& data)
 {
