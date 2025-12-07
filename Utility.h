@@ -1,3 +1,20 @@
+/*
+Per me si va nella citta' bacata,
+per me si va nell'etterno ciclo,
+per me si va tra i comportamenti indefiniti.
+
+Giustizia mosse il mio alto fattore; [Bjarne Stroustrup]
+fecemi la divina podestate,
+la somma sapienza e 'l primo amore;
+
+Dinanzi a me non fuor cose create
+se non etterne, e io etterno duro.
+Lasciate ogne ';', voi ch'intrate.
+
+-- Iscrizione presente nell'entry point di ogni compiler per cpp
+-- Dante Programmieri, Divina Esecuzione, Compilatore, Canto III
+*/
+
 #pragma once
 
 #if defined(_MSVC_LANG) && _MSVC_LANG > __cplusplus
@@ -73,6 +90,16 @@
 #include <variant>
 #endif
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#undef IN
+#else
+#include <dlfcn.h>
+#endif
+
 #ifdef _DEBUG
 #define LOG(x) std::cout << x
 #define LOGE(x) std::cerr << x
@@ -135,7 +162,7 @@ using callable = std::function<void(void)>;
 template <typename T>
 using consumer = std::function<void(T)>;
 template <typename T>
-using provider = std::function<T(void)>;
+using producer = std::function<T(void)>;
 // ################################################################## ALIASES ##################################################################
 
 
@@ -319,27 +346,27 @@ struct expected
 
 // ################################################################## DLL ##################################################################
 #ifdef HAS_CPP20
-#if defined(_WIN32)
-#define NOMINMAX
-#include <windows.h>
-#undef IN
+#ifdef _WIN32
 #define LOAD_LIB(path) LoadLibraryA(path)
 #define LOAD_SYM(lib, name) GetProcAddress((HMODULE)lib, name)
 #define CLOSE_LIB(lib) FreeLibrary((HMODULE)lib)
+#define Handle HMODULE
 #else
-#include <dlfcn.h>
 #define LOAD_LIB(path) dlopen(path, RTLD_NOW)
 #define LOAD_SYM(lib, name) dlsym(lib, name)
 #define CLOSE_LIB(lib) dlclose(lib)
+#define Handle void*
 #endif
 
 class Loader
 {
 public:
-	using Storage = std::hmap<std::string, HMODULE>;
+	using Storage = std::hmap<std::string, Handle>;
 
 public:
-	static void Init() { s_Instance = std::unique_ptr<Loader>(new Loader); }
+	static void Init()   { s_Instance = std::unique_ptr<Loader>(new Loader); }
+	static void Clear()  { s_Instance->_Clear(); }
+	static void DeInit() { s_Instance.reset(); }
 
 	static bool Load(const std::string& lib) { return s_Instance->_Load(lib); }
 	template <StdFunction F>
@@ -350,16 +377,13 @@ public:
 
 private:
 	Loader() {}
-	~Loader() {
-		while (!m_LoadedLibraries.empty())
-			_Unload(m_LoadedLibraries.begin());
-	}
+	~Loader() { _Clear(); }
 
 	bool _Load(const std::string& lib)
 	{
 		LOG("Loading " << lib << '\n');
 
-		HMODULE dll = LOAD_LIB(lib.c_str());
+		Handle dll = LOAD_LIB(lib.c_str());
 		if (!dll) return false;
 		m_LoadedLibraries.insert({ lib, dll });
 		return true;
@@ -368,7 +392,7 @@ private:
 	std::optional<F> _GetFunction(const std::string& lib, const std::string& name)
 	{
 		if (!m_LoadedLibraries.contains(lib))
-			if (!Load(lib))
+			if (!_Load(lib))
 				return std::nullopt;
 
 		LOG("Loading function " << name << " from " << lib << '\n');
@@ -383,12 +407,6 @@ private:
 		auto it = m_LoadedLibraries.find(lib);
 		if (it != m_LoadedLibraries.end())
 			_Unload(it);
-
-		// if (m_LoadedLibraries.contains(lib))
-		// {
-		// 	FreeLibrary(m_LoadedLibraries[lib]);
-		// 	m_LoadedLibraries.erase(lib);
-		// }
 	}
 	void _Unload(Storage::const_iterator it)
 	{
@@ -396,6 +414,12 @@ private:
 
 		CLOSE_LIB(it->second);
 		m_LoadedLibraries.erase(it);
+	}
+
+	void _Clear()
+	{
+		while (!m_LoadedLibraries.empty())
+			_Unload(m_LoadedLibraries.begin());
 	}
 
 private:

@@ -40,9 +40,8 @@ void ShowInExplorer(const fs::path& path)
 #if defined(_WIN32)
 	if (std::filesystem::is_directory(path))
 		std::system(("explorer \""s + path.string() + "\"").c_str());
-	else {
+	else
 		std::system(("explorer /select,\""s + path.string() + "\"").c_str());
-	}
 #elif defined(__APPLE__)
 	std::system((std::string("open \"") + path.string() + "\"").c_str());
 #elif defined(__linux__)
