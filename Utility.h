@@ -72,6 +72,7 @@ Lasciate ogne ';', voi ch'intrate.
 #include <queue>
 
 #include <functional>
+#include <random>
 
 #include <memory>
 #include <condition_variable>
@@ -137,6 +138,11 @@ namespace std {
 	template <typename V>
 	using hset = std::unordered_set<V>;
 
+	template <typename T>
+	using uptr = std::unique_ptr<T>;
+	template <typename T>
+	using sptr = std::shared_ptr<T>;
+
 	namespace chrono {
 		using clock = high_resolution_clock;
 	}
@@ -152,11 +158,6 @@ namespace std {
 	};
 	#endif
 }
-
-template <typename T>
-using uptr = std::unique_ptr<T>;
-template <typename T>
-using sptr = std::shared_ptr<T>;
 
 using callable = std::function<void(void)>;
 template <typename T>
@@ -238,10 +239,6 @@ struct variant_contains : std::false_type {};
 template <typename T, typename... Types>
 struct variant_contains<T, std::variant<Types...>> : std::disjunction<std::is_same<T, Types>...> {};
 #endif
-#ifdef HAS_CPP20
-template <typename T, typename Variant>
-concept in_variant = variant_contains<T, Variant>::value;
-#endif
 
 #ifdef HAS_CPP17
 template <typename T, typename... Args>
@@ -299,7 +296,7 @@ bool inline constexpr holds(const Vs&... vars) { return (... && std::holds_alter
 
 
 // CHRONO
-std::ostream& print_time(const stdc::nanoseconds& time, std::ostream& out = std::cout);
+void print_time(const stdc::nanoseconds& time, std::ostream& out = std::cout);
 
 
 // FILE
@@ -332,7 +329,7 @@ struct expected
 	U& _getU() { return std::get<U>(content); }
 	E&& _consumeE() { return std::move(std::get<E>(content)); }
 	U&& _consumeU() { return std::move(std::get<U>(content)); }
-	template <typename T> _requires(in_variant<T, std::variant<E, U>>)
+	template <typename T> _requires(variant_contains<T, std::variant<E, U>>::value)
 	std::optional<T> get() {
 		return std::holds_alternative<T>(content) ? std::get<T>(content) : std::nullopt;
 	}
@@ -430,6 +427,7 @@ private:
 };
 #endif
 // ################################################################## DLL ##################################################################
+
 
 
 // ################################################################## TREE ##################################################################

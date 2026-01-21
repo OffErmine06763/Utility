@@ -1,28 +1,32 @@
 #include "Utility.h"
 
 
-std::ostream& print_time(const stdc::nanoseconds& time, std::ostream& out)
+void print_time(const stdc::nanoseconds& time, std::ostream& out)
 {
+	double value = to<double>(time.count());
+	const char* unit = "ns";
+
+	if (time >= 1s) {
+		value /= 1'000'000'000.0;
+		unit = "s";
+	} else if (time >= 1ms) {
+		value /= 1'000'000.0;
+		unit = "ms";
+	} else if (time >= 1us) {
+		value /= 1'000.0;
+		unit = "us";
+	}
+
 #ifdef HAS_CPP20
-	if (time < 1us)
-		out << time;
-	else if (time < 1ms)
-		out << to<stdc::microseconds>(time);
-	else if (time < 1s)
-		out << to<stdc::milliseconds>(time);
-	else
-		out << to<stdc::seconds>(time);
+	out << std::format("{:.2f}{}", value, unit);
 #else
-	if (time < 1us)
-		out << time.count() << "ns";
-	else if (time < 1ms)
-		out << to<stdc::microseconds>(time).count() << "us";
-	else if (time < 1s)
-		out << to<stdc::milliseconds>(time).count() << "ms";
-	else
-		out << to<stdc::seconds>(time).count() << 's';
+	std::ios oldState(nullptr);
+	oldState.copyfmt(out);
+
+	out << std::fixed << std::setprecision(2) << value << unit;
+
+	out.copyfmt(oldState);
 #endif
-	return out;
 }
 
 
