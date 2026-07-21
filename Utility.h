@@ -170,58 +170,96 @@ using producer = std::function<T(void)>;
 
 
 // ################################################################## COORD ##################################################################
-template <typename T, size_t D, bool = std::is_trivially_destructible<T>::value>
+template <typename T, size_t D>
 struct coord;
 
 template <typename T>
-struct coord<T, 2, true>
-{
-	union { T x, col; };
-	union { T y, row; };
-};
-template <typename T>
-struct coord<T, 2, false>
-{
+struct coord<T, 2> {
+	using type = T;
 	T x, y;
 };
 template <typename T>
-struct coord<T, 3, true>
-{
-	union { T x, r; };
-	union { T y, g; };
-	union { T z, b; };
-};
-template <typename T>
-struct coord<T, 3, false>
-{
+struct coord<T, 3> {
+	using type = T;
 	T x, y, z;
 };
-template <typename T>
-struct coord<T, 4, true>
-{
-	union { T x, r; };
-	union { T y, g; };
-	union { T z, b; };
-	union { T w, a; };
-};
-template <typename T>
-struct coord<T, 4, false>
-{
-	T x, y, z, w;
-};
 
 
 template <typename T>
-coord<T, 2> operator+(const coord<T, 2>& a, const coord<T, 2>& b) {
+inline coord<T, 2> operator/(const coord<T, 2>& a, const T C) {
+	return { a.x / C,  a.y / C };
+}
+template <typename T>
+inline coord<T, 3> operator/(const coord<T, 3>& a, const T C) {
+	return { a.x / C,  a.y / C,  a.z / C };
+}
+template <typename T>
+inline coord<T, 2> operator*(const T C, const coord<T, 2>& a) {
+	return { C * a.x, C * a.y };
+}
+template <typename T>
+inline coord<T, 3> operator*(const T C, const coord<T, 3>& a) {
+	return { C * a.x, C * a.y, C * a.z };
+}
+
+template <typename T>
+inline coord<T, 2> operator+(const coord<T, 2>& a, const coord<T, 2>& b) {
 	return { a.x + b.x, a.y + b.y };
 }
 template <typename T>
-coord<T, 3> operator+(const coord<T, 3>& a, const coord<T, 3>& b) {
+inline coord<T, 3> operator+(const coord<T, 3>& a, const coord<T, 3>& b) {
 	return { a.x + b.x, a.y + b.y, a.z + b.z };
 }
 template <typename T>
-coord<T, 4> operator+(const coord<T, 4>& a, const coord<T, 4>& b) {
-	return { a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w };
+inline coord<T, 2> operator-(const coord<T, 2>& a, const coord<T, 2>& b) {
+	return { a.x - b.x, a.y - b.y };
+}
+template <typename T>
+inline coord<T, 3> operator-(const coord<T, 3>& a, const coord<T, 3>& b) {
+	return { a.x - b.x, a.y - b.y, a.z - b.z };
+}
+
+template <typename T, size_t D>
+inline coord<T, D>& operator+=(coord<T, D>& a, const coord<T, D>& b) {
+	a = a + b;
+	return a;
+}
+template <typename T, size_t D>
+inline coord<T, D>& operator-=(coord<T, D>& a, const coord<T, D>& b) {
+	a = a - b;
+	return a;
+}
+
+template <typename T>
+inline bool operator==(const coord<T, 2>& a, const coord<T, 2>& b) {
+	return a.x == b.x && a.y == b.y;
+}
+template <typename T>
+inline bool operator==(const coord<T, 3>& a, const coord<T, 3>& b) {
+	return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+template <typename T, typename R = T>
+inline R Dot(const coord<T, 2>& a, const coord<T, 2>& b) {
+	return to<R>(a.x) * to<R>(b.x) + to<R>(a.y) * to<R>(b.y);
+}
+template <typename T, typename R = T>
+inline R Dot(const coord<T, 3>& a, const coord<T, 3>& b) {
+	return to<R>(a.x) * to<R>(b.x) + to<R>(a.y) * to<R>(b.y) + to<R>(a.z) * to<R>(b.z);
+}
+template <typename T, size_t D, typename R = T>
+inline R Norm(const coord<T, D>& a) {
+	return std::sqrt(Dot(a, a));
+}
+
+
+template <typename T, typename R>
+inline constexpr T to(const coord<R, 2>& c) {
+	return { to<typename T::type>(c.x), to<typename T::type>(c.y) };
+}
+template <typename T, typename R>
+inline constexpr T to(const coord<R, 3>& c) {
+	return { to<typename T::type>(c.x), to<typename T::type>(c.y), to<typename T::type>(c.z) };
 }
 // ################################################################## COORD ##################################################################
 
