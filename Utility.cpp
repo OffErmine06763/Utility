@@ -57,6 +57,7 @@ void ShowInExplorer(const fs::path& path)
 #endif
 
 
+#ifdef HAS_CPP20
 namespace Parser
 {
 	const std::function<bool(const ParsedMap&)> KeySpec::OPTIONAL_VALUE  = [](const ParsedMap&) { return false; };
@@ -203,6 +204,7 @@ namespace Parser
 		return res;
 	}
 }
+#endif
 
 
 

@@ -57,7 +57,6 @@ Lasciate ogne ';', voi ch'intrate.
 
 
 #include <inttypes.h>
-#include <numbers>
 
 #include <iostream>
 #include <fstream>
@@ -78,7 +77,6 @@ Lasciate ogne ';', voi ch'intrate.
 
 #include <memory>
 #include <condition_variable>
-#include <semaphore>
 
 #include <regex>
 #include <chrono>
@@ -86,6 +84,8 @@ Lasciate ogne ';', voi ch'intrate.
 #ifdef HAS_CPP20
 #include <ranges>
 #include <format>
+#include <semaphore>
+#include <numbers>
 #endif
 #ifdef HAS_CPP17
 #include <filesystem>
@@ -167,6 +167,13 @@ using consumer = std::function<void(T)>;
 template <typename T>
 using producer = std::function<T(void)>;
 // ################################################################## ALIASES ##################################################################
+
+
+// CASTING
+template <typename T, typename X>
+inline constexpr T to(const X& x) { return static_cast<T>(x); }
+template <typename T, typename X, typename _X>
+inline constexpr T to(const stdc::duration<_X, X>& x) { return stdc::duration_cast<T>(x); }
 
 
 // ################################################################## COORD ##################################################################
@@ -263,13 +270,6 @@ inline constexpr T to(const coord<R, 3>& c) {
 }
 // ################################################################## COORD ##################################################################
 
-
-
-// CASTING
-template <typename T, typename X>
-inline constexpr T to(const X& x) { return static_cast<T>(x); }
-template <typename T, typename X, typename _X>
-inline constexpr T to(const stdc::duration<_X, X>& x) { return stdc::duration_cast<T>(x); }
 
 
 // CONCEPTS
@@ -383,6 +383,7 @@ struct expected
 
 // ################################################################## FILE PARSER ##################################################################
 
+#ifdef HAS_CPP20
 namespace Parser
 {
 	struct ParsedValue;
@@ -440,6 +441,7 @@ namespace Parser
 
 	ParseResult Parse(const fs::path& path, const Schema& schema);
 }
+#endif
 
 // ################################################################## FILE PARSER ##################################################################
 
