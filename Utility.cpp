@@ -59,18 +59,3 @@ void ShowInExplorer(const fs::path& path)
 #ifdef HAS_CPP20
 std::unique_ptr<Loader> Loader::s_Instance = nullptr;
 #endif
-
-const i32 g_TreePrintModeIndex = std::ios_base::xalloc();
-
-std::ostream& TreeInOrder(std::ostream& out) {
-	out.iword(g_TreePrintModeIndex) = (u32)TreePrintMode::IN;
-	return out;
-}
-std::ostream& TreePreOrder(std::ostream& out) {
-	out.iword(g_TreePrintModeIndex) = (u32)TreePrintMode::PRE;
-	return out;
-}
-std::ostream& TreePostOrder(std::ostream& out) {
-	out.iword(g_TreePrintModeIndex) = (u32)TreePrintMode::POST;
-	return out;
-}
