@@ -381,6 +381,68 @@ struct expected
 // ################################################################## EXPECTED ##################################################################
 
 
+// ################################################################## FILE PARSER ##################################################################
+
+namespace Parser
+{
+	struct ParsedValue;
+	using  ParsedArray = std::vector<ParsedValue>;
+	struct ParsedValue : std::variant<int, double, bool, std::string, ParsedArray>
+	{
+		using variant::variant;
+		using variant::operator=;
+	};
+	using ParsedMap = std::unordered_map<std::string, ParsedValue>;
+
+	struct ParseResult {
+		template <typename T>
+		T Get(const std::string& key) const {
+			std::string s = key;
+			std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+			return std::get<T>(data.at(s));
+		}
+		template <typename T>
+		std::optional<T> GetOpt(const std::string& key) const {
+			std::string s = key;
+			std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+			if (!data.contains(s)) return std::nullopt;
+			return std::get<T>(data.at(s));
+		}
+		template <typename T>
+		bool IsValueOfType(const std::string& key) const {
+			std::string s = key;
+			std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+			return holds<T>(data.at(s));
+		}
+		bool Contains(const std::string& key) const {
+			std::string s = key;
+			std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+			return data.contains(s);
+		}
+
+		inline bool Valid() const { return !error.has_value(); }
+		inline std::string GetError() const { return error.value(); }
+
+		ParsedMap data;
+		std::optional<std::string> error;
+	};
+
+	struct KeySpec {
+		static const std::function<bool(const ParsedMap&)> OPTIONAL_VALUE, MANDATORY_VALUE;
+		/// An entry might be required only when another key is present.
+		std::function<bool(const ParsedMap&)> required = OPTIONAL_VALUE;
+		/// This checks for correct data type, presence of conflicting options or options this one depends on
+		/// Optional, if absent a key is always valid
+		std::function<bool(const ParsedValue&, const ParsedMap&, std::string&)> validator;
+	};
+	using Schema = std::unordered_map<std::string, KeySpec>;
+
+
+	ParseResult Parse(const fs::path& path, const Schema& schema);
+}
+
+// ################################################################## FILE PARSER ##################################################################
+
 // ################################################################## DLL ##################################################################
 #ifdef HAS_CPP20
 #ifdef _WIN32
